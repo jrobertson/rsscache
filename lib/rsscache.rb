@@ -92,8 +92,13 @@ class RSScache
     # fetch the feeds from the web
     rss = SimpleRSS.parse(open(feed.url))
 
-    rssfile = File.join(@feedsfilepath, feed.url[6..-1].gsub(/\W+/,'').\
-                               reverse.slice(0,40).reverse).downcase + '.xml'
+    
+    rssfile = if feed.filename.empty? then
+      filename = feed.url[6..-1].gsub(/\W+/,'').\
+                          reverse.slice(0,40).reverse.downcase + '.xml'
+      feed.filename = filename
+      File.join(@feedsfilepath, filename)      
+    end
     
     if File.exists? rssfile then
 
@@ -105,6 +110,7 @@ class RSScache
 
       File.write rssfile, rss.source
       feed.title = rss.title if feed.title.empty?
+
       return true
       
     end
