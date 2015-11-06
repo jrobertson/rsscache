@@ -1,24 +1,31 @@
 #!/usr/bin/env ruby
-
+# 
 # file: rsscache.rb
 
 require 'dynarex'
 require 'open-uri'
 require 'simple-rss'
 require 'fileutils'
+require 'timeout'
 
 
 class RSScache
+  
+  attr_reader :err_report
 
   def initialize(rsslist, feedsfilepath=Dir.pwd)
 
     @dx = open_dynarex(rsslist)
     @rsslist, @feedsfilepath = rsslist, feedsfilepath
     FileUtils.mkdir_p feedsfilepath
+    
+    @err_report = []
 
   end
 
   def refresh
+    
+    @err_report = []
 
     @dx.all.each do |feed|
 
@@ -90,16 +97,25 @@ class RSScache
   def updates?(feed)
 
     # fetch the feeds from the web
-    rss = SimpleRSS.parse(open(feed.url))
+    buffer, code = fetch(feed.url)
 
-    
-    rssfile = if feed.filename.empty? then
+    if code == 200 then
+      rss = SimpleRSS.parse(buffer)
+    else
+      @err_report << [feed.url, code]
+      return false
+    end
+
+    if feed.filename.empty? then
+      
       filename = feed.url[6..-1].gsub(/\W+/,'').\
                           reverse.slice(0,40).reverse.downcase + '.xml'
       feed.filename = filename
-      File.join(@feedsfilepath, filename)      
+
     end
     
+    rssfile = File.join(@feedsfilepath, feed.filename)
+
     if File.exists? rssfile then
 
       rss_cache = SimpleRSS.parse File.read(rssfile)
@@ -117,4 +133,23 @@ class RSScache
     
     return false
   end
+  
+  private
+  
+  def fetch(url, timeout: 2)
+
+    begin
+      Timeout::timeout(timeout){
+
+        buffer = open(url).read
+        return [buffer, 200]
+      }
+    rescue Timeout::Error => e
+      ['connection timed out', 408]
+    rescue OpenURI::HTTPError => e
+      ['400 bad request', 400]
+    end    
+    
+  end
+  
 end
