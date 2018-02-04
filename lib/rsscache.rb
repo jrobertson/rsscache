@@ -11,13 +11,15 @@ require 'timeout'
 
 class RSScache
   
-  attr_reader :err_report
+  attr_reader :err_report, :dx
 
-  def initialize(rsslist, feedsfilepath='.', debug: true)
+  def initialize(rsslist=nil, filepath: '.', debug: true)
 
+    rsslist ||= File.join(filepath, 'rsscache.xml')
     @dx = open_dynarex(rsslist)
-    @rsslist, @feedsfilepath = rsslist, feedsfilepath
-    FileUtils.mkdir_p feedsfilepath
+    @filepath = filepath
+    @cache_filepath = File.join(filepath, 'rsscache')
+    FileUtils.mkdir_p @cache_filepath
     
     @err_report = []
     @debug = debug
@@ -46,7 +48,7 @@ class RSScache
       
     end    
     
-    save_dynarex()
+    save()
   end
 
   # refresh each RSS feed
@@ -89,43 +91,77 @@ class RSScache
 
       end
     end
+    
     puts '@dx: ' + @dx.to_xml(pretty: true) if @debug
-    save_dynarex()
+    save()
 
   end
 
   alias update refresh
 
-  def open_dynarex(x)
+  def save()
 
-    if x.lines.length == 1 and File.exists?(x) and \
-                                      File.extname(x) == '.txt' then
-      Dynarex.new.import x
+    @dx.save File.join(@filepath, 'rsscache.xml')
+    File.write File.join(@filepath, 'rsscache.txt'), @dx.to_s
+
+  end
+
+  
+  private
+  
+  def raw_doc(s)
+    
+    heading = '<?dynarex schema="rsscache[title]/feed(uid, title, ' + 
+      'url, refresh_rate, next_refresh, filename)"?>'
+    
+raw_dx=<<EOF
+#{heading}
+title: RSS Feeds to be cached
+
+--+
+
+#{s.strip.lines.map {|x| 'url: ' + x }.join }
+EOF
+    
+  end
+  
+  def fetch(url, timeout: 2)
+
+    puts 'inside fetch: url: '  + url.inspect if @debug
+    
+    begin
+      Timeout::timeout(timeout){
+
+        buffer = open(url).read.force_encoding("utf-8")
+        return [buffer, 200]
+      }
+    rescue Timeout::Error => e
+      ['connection timed out', 408]
+    rescue OpenURI::HTTPError => e
+      ['400 bad request', 400]
+    end    
+    
+  end
+  
+  def open_dynarex(raw_s)
+
+    s, _ = RXFHelper.read(raw_s)
+    puts 'inside open_dynarex s: ' + s.inspect if @debug
+    
+    case s
+    when /^<?dynarex/
+      Dynarex.new.import s
+    when /^</
+      Dynarex.new s
     else
-      Dynarex.new x
+      Dynarex.new.import raw_doc(s)
     end
+    
   end
 
-  def save_dynarex()
-
-    if @rsslist.lines.length == 1 and File.exists?(@rsslist)
-
-      if File.extname(@rsslist) == '.txt'then
-
-        File.write @rsslist, @dx.to_s
-
-      else
-
-        @dx.save
-
-      end
-
-    end
-  end
-
-  # checks for any updates and saves the latest RSS file to 
-  #                                       the cache if there is
-  #
+  # checks for any updates and save the 
+  # latest RSS file to the cache if there are updates
+  #  
   def updates?(feed)
 
     if @debug then
@@ -134,10 +170,22 @@ class RSScache
     end
     
     # fetch the feeds from the web
-    buffer, code = fetch(feed.url)
+    begin
+      buffer, code = fetch(feed.url)
+    rescue
+      puts 'RSScache::updates?: fetch() warning for feed ' + feed.url \
+          + ' ' + ($!).inspect
+      return
+    end
 
     if code == 200 then
-      rss = SimpleRSS.parse(buffer)
+      begin
+        rss = SimpleRSS.parse(buffer)
+      rescue
+        puts 'RSScache::updates?: err: 100 SimpleRSS warning for feed ' \
+            + feed.url + ' ' + ($!).inspect
+        return
+      end
     else
       @err_report << [feed.url, code]
       return false
@@ -151,11 +199,18 @@ class RSScache
 
     end
     
-    rssfile = File.join(@feedsfilepath, feed.filename)
+    rssfile = File.join(@cache_filepath, feed.filename)
 
     if File.exists? rssfile then
 
-      rss_cache = SimpleRSS.parse File.read(rssfile)
+      begin
+        rss_cache = SimpleRSS.parse File.read(rssfile)
+      rescue
+        puts 'RSScache::updates?: err: 200 SimpleRSS warning for feed ' \
+            + feed.url + ' ' + ($!).inspect        
+        FileUtils.rm rssfile
+        return false 
+      end
       new_rss_items = rss.items - rss_cache.items
       (File.write rssfile, rss.source; return true) if new_rss_items.any?
       
@@ -169,24 +224,7 @@ class RSScache
     end
     
     return false
-  end
+  end  
   
-  private
-  
-  def fetch(url, timeout: 2)
-
-    begin
-      Timeout::timeout(timeout){
-
-        buffer = open(url).read
-        return [buffer, 200]
-      }
-    rescue Timeout::Error => e
-      ['connection timed out', 408]
-    rescue OpenURI::HTTPError => e
-      ['400 bad request', 400]
-    end    
-    
-  end
   
 end
