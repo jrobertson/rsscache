@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# 
+
 # file: rsscache.rb
 
 require 'dynarex'
@@ -10,29 +10,29 @@ require 'timeout'
 
 
 class RSScache
-  
+
   attr_reader :err_report, :dx
 
-  def initialize(rsslist=nil, filepath: '.', debug: true)
+  def initialize(rsslist=nil, filepath: '.', debug: false)
 
     rsslist ||= File.join(filepath, 'rsscache.xml')
     @dx = open_dynarex(rsslist)
     @filepath = filepath
     @cache_filepath = File.join(filepath, 'rsscache')
     FileUtils.mkdir_p @cache_filepath
-    
+
     @err_report = []
     @debug = debug
 
   end
-  
-  # Import a list of URLs into the Dynarex document. 
+
+  # Import a list of URLs into the Dynarex document.
   # URLs which already exist are ignored.
   #
   def import(raw_s)
-    
+
     s, _ = RXFHelper.read(raw_s)
-    
+
     s.strip.lines.each do |raw_url|
 
       url = raw_url.chomp
@@ -45,24 +45,24 @@ class RSScache
         puts 'new URL found' if @debug
         @dx.create url: url
       end
-      
-    end    
-    
+
+    end
+
     save()
   end
 
   # refresh each RSS feed
   #
   def refresh
-    
+
     @err_report = []
 
     puts '@dx.to_xml'  + @dx.to_xml(pretty: true)  if @debug
-    
+
     @dx.all.each do |feed|
-      
+
       puts 'feed:' + feed.inspect if @debug
-      
+
       if feed.next_refresh.empty? or \
                              Time.now >= Time.parse(feed.next_refresh) then
 
@@ -70,7 +70,7 @@ class RSScache
 
         feed.refresh_rate = if feed.refresh_rate.empty? then
 
-          10 
+          10
 
         else
 
@@ -91,7 +91,7 @@ class RSScache
 
       end
     end
-    
+
     puts '@dx: ' + @dx.to_xml(pretty: true) if @debug
     save()
 
@@ -106,14 +106,14 @@ class RSScache
 
   end
 
-  
+
   private
-  
+
   def raw_doc(s)
-    
-    heading = '<?dynarex schema="rsscache[title]/feed(uid, title, ' + 
+
+    heading = '<?dynarex schema="rsscache[title]/feed(uid, title, ' +
       'url, refresh_rate, next_refresh, filename)"?>'
-    
+
 raw_dx=<<EOF
 #{heading}
 title: RSS Feeds to be cached
@@ -122,32 +122,32 @@ title: RSS Feeds to be cached
 
 #{s.strip.lines.map {|x| 'url: ' + x }.join }
 EOF
-    
+
   end
-  
+
   def fetch(url, timeout: 2)
 
     puts 'inside fetch: url: '  + url.inspect if @debug
-    
+
     begin
       Timeout::timeout(timeout){
 
-        buffer = open(url).read.force_encoding("utf-8")
+        buffer = URI.open(url).read.force_encoding("utf-8")
         return [buffer, 200]
       }
     rescue Timeout::Error => e
       ['connection timed out', 408]
     rescue OpenURI::HTTPError => e
       ['400 bad request', 400]
-    end    
-    
+    end
+
   end
-  
+
   def open_dynarex(raw_s)
 
     s, _ = RXFHelper.read(raw_s)
     puts 'inside open_dynarex s: ' + s.inspect if @debug
-    
+
     case s
     when /^<?dynarex/
       Dynarex.new.import s
@@ -156,19 +156,19 @@ EOF
     else
       Dynarex.new.import raw_doc(s)
     end
-    
+
   end
 
-  # checks for any updates and save the 
+  # checks for any updates and save the
   # latest RSS file to the cache if there are updates
-  #  
+  #
   def updates?(feed)
 
     if @debug then
-      puts 'inside updates?' 
+      puts 'inside updates?'
       puts 'feed: ' + feed.inspect
     end
-    
+
     # fetch the feeds from the web
     begin
       buffer, code = fetch(feed.url)
@@ -192,13 +192,13 @@ EOF
     end
 
     if feed.filename.empty? then
-      
+
       filename = feed.url[6..-1].gsub(/\W+/,'').\
                           reverse.slice(0,40).reverse.downcase + '.xml'
       feed.filename = filename
 
     end
-    
+
     rssfile = File.join(@cache_filepath, feed.filename)
 
     if File.exists? rssfile then
@@ -207,24 +207,24 @@ EOF
         rss_cache = SimpleRSS.parse File.read(rssfile)
       rescue
         puts 'RSScache::updates?: err: 200 SimpleRSS warning for feed ' \
-            + feed.url + ' ' + ($!).inspect        
+            + feed.url + ' ' + ($!).inspect
         FileUtils.rm rssfile
-        return false 
+        return false
       end
       new_rss_items = rss.items - rss_cache.items
       (File.write rssfile, rss.source; return true) if new_rss_items.any?
-      
+
     else
 
       File.write rssfile, rss.source
       feed.title = rss.title if feed.title.empty?
 
       return true
-      
+
     end
-    
+
     return false
-  end  
-  
-  
+  end
+
+
 end
