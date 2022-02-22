@@ -5,11 +5,12 @@
 require 'dynarex'
 require 'open-uri'
 require 'simple-rss'
-require 'fileutils'
 require 'timeout'
+require 'rxfreadwrite'
 
 
 class RSScache
+  include RXFReadWrite
 
   attr_reader :err_report, :dx
 
@@ -19,7 +20,7 @@ class RSScache
     @dx = open_dynarex(rsslist)
     @filepath = filepath
     @cache_filepath = File.join(filepath, 'rsscache')
-    FileUtils.mkdir_p @cache_filepath
+    FileX.mkdir_p @cache_filepath
 
     @err_report = []
     @debug = debug
@@ -31,7 +32,7 @@ class RSScache
   #
   def import(raw_s)
 
-    s, _ = RXFHelper.read(raw_s)
+    s, _ = RXFReader.read(raw_s)
 
     s.strip.lines.each do |raw_url|
 
@@ -102,7 +103,7 @@ class RSScache
   def save()
 
     @dx.save File.join(@filepath, 'rsscache.xml')
-    File.write File.join(@filepath, 'rsscache.txt'), @dx.to_s
+    FileX.write File.join(@filepath, 'rsscache.txt'), @dx.to_s
 
   end
 
@@ -145,7 +146,7 @@ EOF
 
   def open_dynarex(raw_s)
 
-    s, _ = RXFHelper.read(raw_s)
+    s, _ = RXFReader.read(raw_s)
     puts 'inside open_dynarex s: ' + s.inspect if @debug
 
     case s
@@ -201,22 +202,22 @@ EOF
 
     rssfile = File.join(@cache_filepath, feed.filename)
 
-    if File.exists? rssfile then
+    if FileX.exists? rssfile then
 
       begin
-        rss_cache = SimpleRSS.parse File.read(rssfile)
+        rss_cache = SimpleRSS.parse FileX.read(rssfile)
       rescue
         puts 'RSScache::updates?: err: 200 SimpleRSS warning for feed ' \
             + feed.url + ' ' + ($!).inspect
-        FileUtils.rm rssfile
+        FileX.rm rssfile
         return false
       end
       new_rss_items = rss.items - rss_cache.items
-      (File.write rssfile, rss.source; return true) if new_rss_items.any?
+      (FileX.write rssfile, rss.source; return true) if new_rss_items.any?
 
     else
 
-      File.write rssfile, rss.source
+      FileX.write rssfile, rss.source
       feed.title = rss.title if feed.title.empty?
 
       return true
