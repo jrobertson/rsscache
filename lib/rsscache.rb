@@ -10,7 +10,7 @@ require 'rxfreadwrite'
 
 
 class RSScache
-  include RXFReadWrite
+  include RXFReadWriteModule
 
   attr_reader :err_report, :dx
 
